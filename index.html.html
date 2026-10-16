@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>단어 마스터 - 드래그 수정 최종본</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        :root { --primary: #4a90e2; --bg: #f0f2f5; --success: #28a745; }
+        body { font-family: sans-serif; background: var(--bg); display: flex; justify-content: center; padding: 20px; margin:0; }
+        .app-container { background: white; width: 100%; max-width: 500px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); overflow: hidden; position: relative; }
+        
+        #secret-header { height: 30px; background: transparent; cursor: default; width: 100%; }
+        .tabs { display: flex; background: #333; }
+        .tab-btn { flex: 1; padding: 15px; border: none; cursor: pointer; background: #333; color: #ccc; font-weight: bold; }
+        .tab-btn.active { background: white; color: var(--primary); border-radius: 10px 10px 0 0; }
+        
+        .content { padding: 20px; display: none; min-height: 550px; text-align: center; }
+        .content.active { display: block; }
+        
+        .remaining { font-size: 0.9rem; color: #666; background: #eee; padding: 5px 12px; border-radius: 20px; display: inline-block; margin-bottom: 15px; }
+        .speaker-icon { font-size: 1.5rem; cursor: pointer; color: var(--primary); border: 1px solid #ddd; border-radius: 50%; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; }
+        
+        .card { width: 100%; height: 320px; perspective: 1000px; cursor: pointer; margin: 15px 0; }
+        .card-inner { position: relative; width: 100%; height: 100%; transition: transform 0.6s; transform-style: preserve-3d; }
+        .card.flipped .card-inner { transform: rotateY(180deg); }
+        .card-front, .card-back { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 15px; border: 2px solid #ddd; padding: 20px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .card-back { transform: rotateY(180deg); background: var(--primary); color: white; border: none; }
+        
+        .main-btn { background: var(--primary); color: white; width: 100%; padding: 15px; border-radius: 8px; border: none; font-weight: bold; font-size: 1.1rem; margin-top: 10px; cursor: pointer; }
+        .cert-btn { background: #2ecc71; color: white; width: 100%; margin-top: 10px; padding: 12px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; }
+
+        .option-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
+        .opt-btn { padding: 15px; border: 1px solid #ddd; border-radius: 8px; background: white; cursor: pointer; font-size: 1rem; font-weight: bold; }
+        input[type="text"] { width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 8px; margin-top: 10px; box-sizing: border-box; font-size: 1.1rem; text-align: center; }
+
+        /* 결과 리포트 */
+        .result-area { padding: 20px; background: white; border-radius: 15px; text-align: center; }
+        .report-card { text-align: left; margin-top: 15px; border-top: 1px solid #eee; padding-top: 10px; }
+        .result-item { display: flex; justify-content: space-between; padding: 10px; margin-bottom: 5px; border-radius: 8px; border: 1px solid #eee; font-weight: bold; font-size: 0.9rem; }
+        .perfect { background: #d4edda; color: #155724; }
+        .retry { background: #fff3cd; color: #856404; }
+        .attempt-badge { display: block; margin-bottom: 10px; padding: 5px 15px; background: #333; color: white; border-radius: 5px; font-size: 0.9rem; width: fit-content; margin: 0 auto 10px; }
+
+        /* 관리자 설정창 (드래그 존 추가) */
+        #admin-overlay { display:none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: white; z-index: 1000; padding: 25px; box-sizing: border-box; }
+        #data-input { width: 100%; height: 200px; margin-bottom: 10px; padding: 10px; box-sizing: border-box; border: 2px solid #ccc; border-radius: 8px; font-size: 0.8rem; transition: 0.3s; }
+        #data-input.dragover { border-color: var(--primary); background: #eef6ff; }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <div id="secret-header" onclick="triggerAdmin()"></div>
+    <div class="tabs">
+        <button class="tab-btn active" onclick="openTab(event, 'flash')">단어 카드</button>
+        <button class="tab-btn" onclick="openTab(event, 'quiz4')">4지선다</button>
+        <button class="tab-btn" onclick="openTab(event, 'write')">주관식</button>
+    </div>
+
+    <div id="admin-overlay">
+        <h2>⚙️ 데이터 설정</h2>
+        <p style="font-size: 0.8rem; color: #666;">JSON 파일을 아래 입력창으로 드래그하세요.</p>
+        <textarea id="data-input" placeholder="여기에 파일을 드래그하거나 텍스트를 붙여넣으세요."></textarea>
+        <button class="main-btn" onclick="applyData()">저장 및 적용</button>
+        <button class="main-btn" onclick="resetCounts()" style="background:#e74c3c;">시험 횟수 초기화</button>
+        <button class="main-btn" onclick="closeAdmin()" style="background:#999;">닫기</button>
+    </div>
+
+    <div id="flash" class="content active">
+        <p class="remaining" id="flash-rem"></p>
+        <div id="flash-box">
+            <div class="speaker-icon" onclick="speakWord()">🔊</div>
+            <div class="card" id="mainCard" onclick="this.classList.toggle('flipped')">
+                <div class="card-inner">
+                    <div class="card-front"><h1 id="f-word" style="font-size:2.8rem;"></h1></div>
+                    <div class="card-back">
+                        <h2 id="f-mean" style="font-size:1.8rem;"></h2>
+                        <p id="f-ex" style="font-style:italic; margin-top:15px; border-top:1px solid rgba(255,255,255,0.3); padding-top:10px;"></p>
+                        <p id="f-ex-ko" style="font-size:0.85rem; opacity:0.8; margin-top:5px;"></p>
+                    </div>
+                </div>
+            </div>
+            <button class="main-btn" onclick="submitFlash()">외웠어요!</button>
+        </div>
+    </div>
+
+    <div id="quiz4" class="content">
+        <p class="remaining" id="q4-rem"></p>
+        <div id="q4-box">
+            <div class="speaker-icon" onclick="speakWord()">🔊</div>
+            <h1 id="q4-word" style="font-size:2.5rem; margin-bottom:30px;"></h1>
+            <div class="option-grid" id="q4-options"></div>
+            <p id="q4-msg" style="margin-top:20px; font-weight:bold; height:24px;"></p>
+        </div>
+    </div>
+
+    <div id="write" class="content">
+        <p class="remaining" id="qw-rem"></p>
+        <div id="qw-box">
+            <h2 id="qw-mean" style="font-size:2rem; color:var(--primary);"></h2>
+            <div style="background:#f9f9f9; padding:15px; border-radius:10px; margin: 15px 0;">
+                <p id="qw-ex" style="font-style:italic; margin:0;"></p>
+                <p id="qw-ex-ko" style="font-size:0.85rem; color:#888; margin-top:5px;"></p>
+            </div>
+            <input type="text" id="qw-input" placeholder="영단어를 입력하세요" onkeypress="if(event.keyCode==13) checkWrite()">
+            <button class="main-btn" onclick="checkWrite()">정답 확인</button>
+            <p id="qw-msg" style="margin-top:15px; font-weight:bold; height:24px;"></p>
+        </div>
+    </div>
+</div>
+
+<script>
+    let defaultData = [
+  {
+    "w": "astonished",
+    "m": "크게 놀란, 깜짝 놀란",
+    "e": "Gina was astonished when she saw the news headline.",
+    "k": "지나는 그 뉴스 헤드라인을 보고 깜짝 놀랐다."
+  },
+  {
+    "w": "share",
+    "m": "공유하다, 퍼뜨리다",
+    "e": "Gina immediately shared the shocking story with her close friends.",
+    "k": "지나는 그 충격적인 이야기를 즉시 가까운 친구들과 공유했다."
+  },
+  {
+    "w": "embarrassed",
+    "m": "당황한, 창피한",
+    "e": "Gina was embarrassed by the fact that she had spread the fake news.",
+    "k": "지나는 자신이 가짜 뉴스를 퍼뜨렸다는 사실에 당황했다."
+  },
+  {
+    "w": "seek",
+    "m": "추구하다, 얻으려고 하다",
+    "e": "Content creators sought people's attention.",
+    "k": "콘텐츠 제작자들은 사람들의 관심을 얻으려 했다."
+  },
+  {
+    "w": "provocative",
+    "m": "자극적인, 관심을 유발하는",
+    "e": "They produced provocative false stories to make money.",
+    "k": "그들은 돈을 벌기 위해 자극적인 거짓 이야기를 만들어 냈다."
+  },
+  {
+    "w": "contribute",
+    "m": "기여하다, 한몫하다, 원인이 되다",
+    "e": "Gina accidentally contributed to the spread of fake news.",
+    "k": "지나는 실수로 가짜 뉴스의 확산에 한몫하게 되었다."
+  },
+  {
+    "w": "deliberate",
+    "m": "의도적인, 고의적인",
+    "e": "Fake news is a deliberate attempt to manipulate people.",
+    "k": "가짜 뉴스는 사람들을 조종하려는 의도적인 시도이다."
+  },
+  {
+    "w": "manipulate",
+    "m": "조종하다, 교묘하게 영향을 미치다",
+    "e": "Some people manipulate others to achieve their goals.",
+    "k": "어떤 사람들은 자신의 목표를 달성하기 위해 다른 사람들을 조종한다."
+  },
+  {
+    "w": "intention",
+    "m": "의도, 목적",
+    "e": "He posted the video with the intention of attracting attention.",
+    "k": "그는 관심을 끌려는 의도로 그 영상을 게시했다."
+  },
+  {
+    "w": "disturb",
+    "m": "방해하다, 혼란에 빠뜨리다",
+    "e": "Fake news can disturb society and harm the public.",
+    "k": "가짜 뉴스는 사회를 혼란에 빠뜨리고 대중에게 피해를 줄 수 있다."
+  },
+  {
+    "w": "displaced",
+    "m": "살던 곳을 떠나게 된, 거처를 잃은",
+    "e": "Many displaced people needed a safe place to live.",
+    "k": "많은 이재민은 안전하게 살 곳이 필요했다."
+  },
+  {
+    "w": "anxious",
+    "m": "불안해하는, 걱정하는",
+    "e": "She was anxious about the coming exam.",
+    "k": "그녀는 다가오는 시험에 대해 불안해했다."
+  },
+  {
+    "w": "phenomenon",
+    "m": "현상",
+    "e": "Scientists are studying this unusual phenomenon.",
+    "k": "과학자들은 이 특이한 현상을 연구하고 있다."
+  },
+  {
+    "w": "stimulating",
+    "m": "자극적인, 흥미를 불러일으키는",
+    "e": "The book presents stimulating ideas.",
+    "k": "그 책은 흥미를 불러일으키는 생각들을 제시한다."
+  },
+  {
+    "w": "critically",
+    "m": "비판적으로",
+    "e": "We should critically examine the information we read.",
+    "k": "우리는 읽은 정보를 비판적으로 검토해야 한다."
+  },
+  {
+    "w": "inclined",
+    "m": "~하는 경향이 있는",
+    "e": "People are inclined to believe information that supports their opinions.",
+    "k": "사람들은 자신의 의견을 뒷받침하는 정보를 믿는 경향이 있다."
+  },
+  {
+    "w": "prejudice",
+    "m": "편견, 선입견",
+    "e": "We should not judge people based on prejudice.",
+    "k": "우리는 편견을 바탕으로 사람들을 판단해서는 안 된다."
+  },
+  {
+    "w": "selectively",
+    "m": "선택적으로",
+    "e": "He selectively accepts information that supports his beliefs.",
+    "k": "그는 자신의 신념을 뒷받침하는 정보만 선택적으로 받아들인다."
+  },
+  {
+    "w": "mislead",
+    "m": "잘못된 판단을 하게 하다, 오도하다",
+    "e": "False information can mislead readers.",
+    "k": "잘못된 정보는 독자들이 잘못된 판단을 하게 할 수 있다."
+  },
+  {
+    "w": "evaluate",
+    "m": "평가하다, 판단하다",
+    "e": "You should evaluate the evidence before making a decision.",
+    "k": "결정을 내리기 전에 증거를 평가해야 한다."
+  },
+  {
+    "w": "bias",
+    "m": "편견, 편향",
+    "e": "We must recognize our own biases.",
+    "k": "우리는 자신의 편견을 인식해야 한다."
+  },
+  {
+    "w": "credibility",
+    "m": "신뢰성, 믿을 만함",
+    "e": "Always check the credibility of the news source.",
+    "k": "항상 뉴스 출처의 신뢰성을 확인해야 한다."
+  },
+  {
+    "w": "valid",
+    "m": "타당한, 유효한",
+    "e": "The scientist provided valid evidence for the claim.",
+    "k": "그 과학자는 그 주장을 뒷받침하는 타당한 증거를 제시했다."
+  },
+  {
+    "w": "objectively",
+    "m": "객관적으로",
+    "e": "We should examine the facts objectively.",
+    "k": "우리는 사실을 객관적으로 검토해야 한다."
+  },
+  {
+    "w": "crisis",
+    "m": "위기, 심각한 문제",
+    "e": "The city is facing a serious water crisis.",
+    "k": "그 도시는 심각한 물 위기에 직면해 있다."
+  },
+  {
+    "w": "drought",
+    "m": "가뭄",
+    "e": "The drought lasted for several months.",
+    "k": "그 가뭄은 몇 달 동안 지속되었다."
+  },
+  {
+    "w": "stage",
+    "m": "단계, 국면",
+    "e": "The project has entered a new stage.",
+    "k": "그 프로젝트는 새로운 단계에 접어들었다."
+  },
+  {
+    "w": "essential",
+    "m": "필수품, 필수적인 것",
+    "e": "Clean water is essential for life.",
+    "k": "깨끗한 물은 생명 유지에 필수적이다."
+  },
+  {
+    "w": "crowd",
+    "m": "군중, 사람들",
+    "e": "A large crowd gathered outside the store.",
+    "k": "많은 사람들이 가게 밖에 모였다."
+  },
+  {
+    "w": "silent",
+    "m": "소리가 없는, 조용한",
+    "e": "The room became silent after the announcement.",
+    "k": "그 발표 이후 방은 조용해졌다."
+  },
+  {
+    "w": "impatience",
+    "m": "조급함, 참을성 없음",
+    "e": "His impatience grew as he waited for the bus.",
+    "k": "그는 버스를 기다리면서 점점 조급해졌다."
+  },
+  {
+    "w": "hostility",
+    "m": "적대감, 적개심",
+    "e": "There was hostility between the two groups.",
+    "k": "두 집단 사이에는 적대감이 있었다."
+  },
+  {
+    "w": "approach",
+    "m": "다가가다",
+    "e": "She approached the teacher after class.",
+    "k": "그녀는 수업이 끝난 후 선생님에게 다가갔다."
+  },
+  {
+    "w": "abandon",
+    "m": "버리다, 내버려 두다",
+    "e": "They abandoned the old car by the road.",
+    "k": "그들은 오래된 차를 길가에 버렸다."
+  },
+  {
+    "w": "precious",
+    "m": "귀중한, 소중한",
+    "e": "Water is a precious resource.",
+    "k": "물은 귀중한 자원이다."
+  },
+  {
+    "w": "commodity",
+    "m": "상품, 물품",
+    "e": "Coffee is an important commodity in many countries.",
+    "k": "커피는 많은 나라에서 중요한 상품이다."
+  },
+  {
+    "w": "recognize",
+    "m": "알아보다, 알아차리다",
+    "e": "I recognized her from our soccer team.",
+    "k": "나는 그녀를 우리 축구팀에서 알아보았다."
+  },
+  {
+    "w": "return the favor",
+    "m": "은혜를 갚다, 호의를 되돌려 주다",
+    "e": "She helped me, so I wanted to return the favor.",
+    "k": "그녀가 나를 도와주었기 때문에 나도 은혜를 갚고 싶었다."
+  },
+  {
+    "w": "flush",
+    "m": "얼굴이 붉어짐, 홍조",
+    "e": "A flush spread across his face when he felt embarrassed.",
+    "k": "그는 당황했을 때 얼굴이 붉어졌다."
+  },
+  {
+    "w": "remind",
+    "m": "상기시키다, 다시 일깨우다",
+    "e": "Please remind me to call my mother.",
+    "k": "어머니께 전화하라고 나에게 상기시켜 주세요."
+  },
+  {
+    "w": "pile",
+    "m": "쌓다, 포개다",
+    "e": "We piled the books on the desk.",
+    "k": "우리는 책들을 책상 위에 쌓았다."
+  },
+  {
+    "w": "take notice",
+    "m": "주목하다, 알아차리다",
+    "e": "People began to take notice of the strange noise.",
+    "k": "사람들은 이상한 소리에 주목하기 시작했다."
+  },
+  {
+    "w": "ridiculously",
+    "m": "터무니없이, 어처구니없을 정도로",
+    "e": "The bag was ridiculously heavy.",
+    "k": "그 가방은 터무니없을 정도로 무거웠다."
+  },
+  {
+    "w": "grab",
+    "m": "붙잡다, 움켜잡다",
+    "e": "He grabbed my hand to help me cross the street.",
+    "k": "그는 내가 길을 건너는 것을 돕기 위해 내 손을 붙잡았다."
+  },
+  {
+    "w": "deserve",
+    "m": "~할 만하다, ~받을 자격이 있다",
+    "e": "Everyone deserves respect.",
+    "k": "모든 사람은 존중받을 자격이 있다."
+  },
+  {
+    "w": "suggest",
+    "m": "제안하다, 권하다",
+    "e": "I suggest taking a short break.",
+    "k": "나는 잠깐 쉬는 것을 제안한다."
+  },
+  {
+    "w": "fade",
+    "m": "희미해지다, 사라지다",
+    "e": "The sound slowly faded away.",
+    "k": "그 소리는 서서히 사라졌다."
+  },
+  {
+    "w": "bring out",
+    "m": "(특성·능력을) 드러내다, 끌어내다",
+    "e": "Difficult times can bring out the best in people.",
+    "k": "힘든 시기는 사람들에게서 가장 좋은 면을 끌어낼 수 있다."
+  },
+  {
+    "w": "firmly",
+    "m": "단단히, 꽉",
+    "e": "She firmly held the handle of the bag.",
+    "k": "그녀는 가방 손잡이를 꽉 잡았다."
+  },
+  {
+    "w": "prove",
+    "m": "증명하다, 입증하다",
+    "e": "The results prove that the method works.",
+    "k": "그 결과는 그 방법이 효과가 있음을 증명한다."
+  },
+  {
+    "w": "disastrous",
+    "m": "처참한, 재앙적인",
+    "e": "The storm had a disastrous effect on the town.",
+    "k": "그 폭풍은 그 마을에 처참한 영향을 미쳤다."
+  },
+  {
+    "w": "resume",
+    "m": "재개하다, 다시 시작하다",
+    "e": "The meeting will resume after lunch.",
+    "k": "회의는 점심 식사 후에 재개될 것이다."
+  },
+  {
+    "w": "address",
+    "m": "(문제 등을) 다루다, 해결하려고 노력하다",
+    "e": "The government must address the water shortage.",
+    "k": "정부는 물 부족 문제를 해결하기 위해 노력해야 한다."
+  }
+];
+let vocabulary = JSON.parse(localStorage.getItem('vocab_data')) || defaultData;
+    let studyPool = [...vocabulary];
+    let quizResults = [];
+    let curIdx = -1;
+    let currentAttempts = 0;
+    let adminClick = 0;
+    let stats = JSON.parse(localStorage.getItem('study_stats')) || { quiz4: 0, write: 0 };
+
+    // --- 드래그 앤 드롭 로직 개선 ---
+    const dataInput = document.getElementById('data-input');
+    
+    dataInput.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dataInput.classList.add('dragover');
+    });
+
+    dataInput.addEventListener('dragleave', () => {
+        dataInput.classList.remove('dragover');
+    });
+
+    dataInput.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dataInput.classList.remove('dragover');
+        const file = e.dataTransfer.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                dataInput.value = event.target.result;
+            };
+            reader.readAsText(file);
+        }
+    });
+
+    function applyData() {
+        try {
+            const raw = dataInput.value.trim();
+            const jsonMatch = raw.match(/\[.*\]/s);
+            if (!jsonMatch) throw new Error("JSON 형식이 아닙니다.");
+            const parsed = JSON.parse(jsonMatch[0]);
+            localStorage.setItem('vocab_data', JSON.stringify(parsed));
+            alert("데이터가 성공적으로 저장되었습니다!");
+            location.reload();
+        } catch(e) {
+            alert("데이터를 읽는 중 오류가 발생했습니다. 형식을 확인해주세요.");
+        }
+    }
+
+    // --- 나머지 기능 로직 (기존과 동일하되 누락 없이 통합) ---
+    function openTab(evt, name) {
+        document.querySelectorAll(".content").forEach(c => c.style.display = "none");
+        document.querySelectorAll(".tab-btn").forEach(t => t.classList.remove("active"));
+        document.getElementById(name).style.display = "block";
+        evt.currentTarget.classList.add("active");
+        studyPool = [...vocabulary];
+        quizResults = [];
+        if(name === 'flash') setupFlash();
+        if(name === 'quiz4') setupQuiz4();
+        if(name === 'write') setupWrite();
+    }
+
+    function setupFlash() {
+        if (studyPool.length === 0) { document.getElementById('flash-box').innerHTML = "<h2>🎉 학습 완료!</h2>"; return; }
+        const card = document.getElementById('mainCard');
+        card.classList.remove('flipped');
+        document.getElementById('flash-rem').innerText = `남은 단어: ${studyPool.length}`;
+        curIdx = Math.floor(Math.random() * studyPool.length);
+        const item = studyPool[curIdx];
+        document.getElementById('f-word').innerText = item.w;
+        document.getElementById('f-mean').innerText = item.m;
+        document.getElementById('f-ex').innerText = item.e || "";
+        document.getElementById('f-ex-ko').innerText = item.k || "";
+        speakWord();
+    }
+    function submitFlash() { studyPool.splice(curIdx, 1); setupFlash(); }
+
+    function setupQuiz4() {
+        if (studyPool.length === 0) { showReport('q4-box', 'quiz4'); return; }
+        document.getElementById('q4-rem').innerText = `남은 문제: ${studyPool.length}`;
+        document.getElementById('q4-msg').innerText = "";
+        currentAttempts = 0;
+        curIdx = Math.floor(Math.random() * studyPool.length);
+        const cor = studyPool[curIdx];
+        document.getElementById('q4-word').innerText = cor.w;
+        let opts = [cor.m];
+        while(opts.length < Math.min(4, vocabulary.length)) {
+            let r = vocabulary[Math.floor(Math.random() * vocabulary.length)].m;
+            if(!opts.includes(r)) opts.push(r);
+        }
+        opts.sort(() => Math.random() - 0.5);
+        document.getElementById('q4-options').innerHTML = opts.map(o => `<button class="opt-btn" onclick="checkQ4('${o}', '${cor.m}')">${o}</button>`).join('');
+        speakWord();
+    }
+    function checkQ4(pick, answer) {
+        currentAttempts++;
+        if (pick === answer) {
+            quizResults.push({ w: studyPool[curIdx].w, status: currentAttempts === 1 ? 'perfect' : 'retry' });
+            document.getElementById('q4-msg').innerText = "정답! ✨";
+            document.getElementById('q4-msg').style.color = "green";
+            setTimeout(() => { studyPool.splice(curIdx, 1); setupQuiz4(); }, 600);
+        } else {
+            document.getElementById('q4-msg').innerText = "오답입니다!";
+            document.getElementById('q4-msg').style.color = "red";
+        }
+    }
+
+    function setupWrite() {
+        if (studyPool.length === 0) { showReport('qw-box', 'write'); return; }
+        document.getElementById('qw-rem').innerText = `남은 문제: ${studyPool.length}`;
+        document.getElementById('qw-msg').innerText = "";
+        document.getElementById('qw-input').value = "";
+        currentAttempts = 0;
+        curIdx = Math.floor(Math.random() * studyPool.length);
+        const item = studyPool[curIdx];
+        document.getElementById('qw-mean').innerText = item.m;
+        document.getElementById('qw-ex').innerText = item.e ? item.e.replace(new RegExp(item.w, 'gi'), '_____') : "";
+        document.getElementById('qw-ex-ko').innerText = item.k || "";
+        document.getElementById('qw-input').focus();
+    }
+    function checkWrite() {
+        const val = document.getElementById('qw-input').value.trim().toLowerCase();
+        const cor = studyPool[curIdx].w.toLowerCase();
+        currentAttempts++;
+        if (val === cor) {
+            quizResults.push({ w: studyPool[curIdx].w, status: currentAttempts === 1 ? 'perfect' : 'retry' });
+            document.getElementById('qw-msg').innerText = "정답! 👏";
+            document.getElementById('qw-msg').style.color = "green";
+            setTimeout(() => { studyPool.splice(curIdx, 1); setupWrite(); }, 800);
+        } else {
+            document.getElementById('qw-msg').innerText = currentAttempts >= 2 ? `정답: ${studyPool[curIdx].w}` : "다시 시도!";
+            document.getElementById('qw-msg').style.color = "red";
+        }
+    }
+
+    function showReport(divId, type) {
+        stats[type]++;
+        localStorage.setItem('study_stats', JSON.stringify(stats));
+        let p = quizResults.filter(r => r.status === 'perfect').length;
+        let html = `<div id="capture-target" class="result-area"><div class="attempt-badge">총 시험 횟수: ${stats[type]}회</div><h3>📊 인증 리포트</h3><p>완벽: ${p} / 보충: ${quizResults.length-p}</p><div class="report-card">`;
+        quizResults.forEach(r => { html += `<div class="result-item ${r.status}"><span>${r.w}</span><span>${r.status.toUpperCase()}</span></div>`; });
+        html += `</div><p style="font-size:0.7rem; color:#999; margin-top:10px;">시각: ${new Date().toLocaleString()}</p></div><button class="cert-btn" onclick="saveAsImage()">📸 이미지 저장</button><button class="main-btn" onclick="location.reload()" style="background:#999;">다시 시작</button>`;
+        document.getElementById(divId).innerHTML = html;
+    }
+
+    function saveAsImage() {
+        const target = document.getElementById('capture-target');
+        html2canvas(target, { backgroundColor: "#ffffff", scale: 2 }).then(canvas => {
+            const link = document.createElement('a');
+            link.download = `인증샷_${new Date().getTime()}.jpg`;
+            link.href = canvas.toDataURL('image/jpeg', 0.9);
+            link.click();
+        });
+    }
+
+    function speakWord() {
+        const word = studyPool[curIdx]?.w;
+        if(word) {
+            const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(word)}&tl=en&client=tw-ob`;
+            new Audio(url).play();
+        }
+    }
+
+    function triggerAdmin() {
+        adminClick++;
+        if (adminClick === 3) { document.getElementById('admin-overlay').style.display = 'block'; adminClick = 0; }
+        setTimeout(() => { adminClick = 0; }, 500);
+    }
+    function closeAdmin() { document.getElementById('admin-overlay').style.display = 'none'; }
+    function resetCounts() { if(confirm("초기화할까요?")) { stats={quiz4:0,write:0}; localStorage.setItem('study_stats', JSON.stringify(stats)); location.reload(); } }
+
+    window.onload = () => { if(vocabulary.length > 0) setupFlash(); };
+</script>
+</body>
+</html>
